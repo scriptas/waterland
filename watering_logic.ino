@@ -12,6 +12,7 @@ const char* password = "sausis45";
 #define WATERING_TIME 120000  // 2 minutes in milliseconds
 #define MAX_DAILY_WATERING_TIME 1800000  // 30 minutes in milliseconds
 #define WIFI_TIMEOUT 30000  // 30 seconds in milliseconds
+#define HOUR_DELAY 3600000
 
 unsigned long dailyWateringTime = 0;
 unsigned long lastResetTime = 0;
@@ -20,7 +21,7 @@ int currentHour = 0;
 
 // NTP Client to get time
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);  // Update every minute
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, HOUR_DELAY);
 
 void setup() {
   Serial.begin(BAUD_RATE);
