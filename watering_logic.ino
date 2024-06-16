@@ -1,6 +1,9 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
+#include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <ESP8266WiFiMulti.h>
 
 const char* ssid = "Wall-e";
 const char* password = "sausis45";
@@ -8,20 +11,24 @@ const char* password = "sausis45";
 #define BAUD_RATE 9600
 #define DRY_VALUE 650
 #define WET_VALUE 276
-#define WATER_PORT D1
+#define WATER_PORT D5
 #define WATERING_TIME 120000  // 2 minutes in milliseconds
 #define MAX_DAILY_WATERING_TIME 1800000  // 30 minutes in milliseconds
 #define WIFI_TIMEOUT 30000  // 30 seconds in milliseconds
-#define HOUR_DELAY 3600000
+#define TCP_PORT 23  // TCP port for logging
 
 unsigned long dailyWateringTime = 0;
 unsigned long lastResetTime = 0;
 bool timeRetrieved = false;
 int currentHour = 0;
 
+ESP8266WiFiMulti WiFiMulti;
+WiFiServer server(TCP_PORT);
+WiFiClient client;
+
 // NTP Client to get time
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, HOUR_DELAY);
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);  // Update every minute
 
 void setup() {
   Serial.begin(BAUD_RATE);
@@ -58,6 +65,9 @@ void setup() {
       Serial.print("Current hour: ");
       Serial.println(currentHour);
     }
+
+    server.begin();
+    Serial.println("TCP server started.");
   } else {
     Serial.println("");
     Serial.println("WiFi connection failed. Continuing without WiFi.");
@@ -73,11 +83,10 @@ void loop() {
     if (WiFi.status() == WL_CONNECTED && timeClient.update()) {
       timeRetrieved = true;
       currentHour = timeClient.getHours();
-      Serial.print("Current hour: ");
-      Serial.println(currentHour);
+      logMessage("Current hour: " + String(currentHour));
     } else {
       timeRetrieved = false;
-      Serial.println("Failed to retrieve time from NTP server.");
+      logMessage("Failed to retrieve time from NTP server.");
     }
   }
 
@@ -85,16 +94,16 @@ void loop() {
   int moisturePercentage = map(sensorValue, DRY_VALUE, WET_VALUE, 0, 100);
   moisturePercentage = constrain(moisturePercentage, 0, 100);
 
-  Serial.print("Soil Moisture Value: ");
-  Serial.print(sensorValue);
-  Serial.print(" -> ");
-  Serial.print(moisturePercentage);
-  Serial.println("%");
+  logMessage("Soil Moisture Value: " + String(sensorValue) + " -> " + String(moisturePercentage) + "%");
 
   bool withinTimeRange = timeRetrieved ? (currentHour >= 10 && currentHour < 18) : true;
 
-  if (moisturePercentage < 50 && dailyWateringTime < MAX_DAILY_WATERING_TIME && withinTimeRange) {
-    Serial.println("Moisture is below 50%, starting watering...");
+  // Inverted logic for watering
+  if (!(moisturePercentage < 50 && dailyWateringTime < MAX_DAILY_WATERING_TIME && withinTimeRange)) {
+    logMessage("Moisture is above 50% or daily limit reached or out of time range, stopping watering...");
+    digitalWrite(WATER_PORT, LOW);
+  } else {
+    logMessage("Conditions met, starting watering...");
     digitalWrite(WATER_PORT, HIGH);
     unsigned long startWateringTime = millis();
     while (millis() - startWateringTime < WATERING_TIME) {
@@ -102,24 +111,38 @@ void loop() {
       moisturePercentage = map(sensorValue, DRY_VALUE, WET_VALUE, 0, 100);
       moisturePercentage = constrain(moisturePercentage, 0, 100);
 
-      if (moisturePercentage > 60 || dailyWateringTime >= MAX_DAILY_WATERING_TIME) {
-        Serial.println("Moisture exceeds 60% or daily limit reached, stopping watering...");
+      if (!(moisturePercentage < 50) || dailyWateringTime >= MAX_DAILY_WATERING_TIME) {
+        logMessage("Moisture exceeds 50% or daily limit reached, stopping watering...");
         break;
       }
       
-      Serial.print("During Watering - Soil Moisture Value: ");
-      Serial.print(sensorValue);
-      Serial.print(" -> ");
-      Serial.print(moisturePercentage);
-      Serial.println("%");
+      logMessage("During Watering - Soil Moisture Value: " + String(sensorValue) + " -> " + String(moisturePercentage) + "%");
 
       delay(1000);
     }
     unsigned long wateringDuration = millis() - startWateringTime;
     dailyWateringTime += wateringDuration;
     digitalWrite(WATER_PORT, LOW);
-    Serial.println("Watering complete.");
+    logMessage("Watering complete.");
   }
 
   delay(1000);
+
+  // Handle client connection for logging
+  if (!client || !client.connected()) {
+    client = server.available();
+  }
+
+  if (client && client.connected()) {
+    while (client.available()) {
+      client.read();  // Clear any incoming data
+    }
+  }
+}
+
+void logMessage(String message) {
+  Serial.println(message);
+  if (client && client.connected()) {
+    client.println(message);
+  }
 }
