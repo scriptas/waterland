@@ -1,7 +1,6 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
-#include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WiFiMulti.h>
 
@@ -98,9 +97,24 @@ void loop() {
 
   bool withinTimeRange = timeRetrieved ? (currentHour >= 10 && currentHour < 18) : true;
 
-  // Inverted logic for watering
-  if (!(moisturePercentage < 50 && dailyWateringTime < MAX_DAILY_WATERING_TIME && withinTimeRange)) {
-    logMessage("Moisture is above 50% or daily limit reached or out of time range, stopping watering...");
+  String stopReasons = "Stop Reasons: ";
+  bool shouldStop = false;
+
+  if (moisturePercentage >= 50) {
+    stopReasons += "Moisture is above 50%; ";
+    shouldStop = true;
+  }
+  if (dailyWateringTime >= MAX_DAILY_WATERING_TIME) {
+    stopReasons += "Daily limit reached; ";
+    shouldStop = true;
+  }
+  if (!withinTimeRange) {
+    stopReasons += "Out of time range; ";
+    shouldStop = true;
+  }
+
+  if (shouldStop) {
+    logMessage(stopReasons + "stopping watering...");
     digitalWrite(WATER_PORT, LOW);
   } else {
     logMessage("Conditions met, starting watering...");
@@ -126,7 +140,7 @@ void loop() {
     logMessage("Watering complete.");
   }
 
-  delay(1000);
+  delay(10000);  // Delay 10 seconds instead of 1 second
 
   // Handle client connection for logging
   if (!client || !client.connected()) {
