@@ -4,8 +4,8 @@
 #include <WiFiClient.h>
 #include <ESP8266WiFiMulti.h>
 
-const char* ssid = "Wall-e";
-const char* password = "sausis45";
+const char* ssid = "wifiname";
+const char* password = "wifipass";
 
 #define BAUD_RATE 9600
 #define DRY_VALUE 650
