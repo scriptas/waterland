@@ -1,0 +1,18 @@
+[package]
+name = "my_esp_project"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+embedded-svc = "0.20.1"
+esp-idf-hal = "0.32"
+esp-idf-svc = "0.42"
+esp-idf-sys = { version = "0.42", features = ["binstart", "wifi", "esp32", "sntp", "gpio"] }
+
+[build-dependencies]
+esp-idf-sys = { version = "0.42", features = ["native"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
