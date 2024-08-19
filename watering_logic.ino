@@ -4,8 +4,8 @@
 #include <WiFiClient.h>
 #include <ESP8266WiFiMulti.h>
 
-const char* ssid = "Wall-e";
-const char* password = "sausis45";
+const char* ssid = "name";
+const char* password = "password";
 
 // NodeMCU board, ESP-12E, 8622
 #define BAUD_RATE 9600
@@ -103,9 +103,10 @@ void loop() {
 
   bool withinTimeRange = timeRetrieved ? (currentHour >= 10 && currentHour < 18) : true;
 
-  String stopReasons = "Stop Reasons: ";
+  String stopReasons = "";
   bool shouldStop = false;
 
+  // Check conditions and log the limiting factor
   if (moisturePercentage >= 50) {
     stopReasons += "Moisture is above 50%; ";
     shouldStop = true;
@@ -115,7 +116,7 @@ void loop() {
     shouldStop = true;
   }
   if (!withinTimeRange) {
-    stopReasons += "Out of time range; ";
+    stopReasons += "Out of time range (10:00 - 18:00); ";
     shouldStop = true;
   }
 
@@ -123,6 +124,8 @@ void loop() {
     logMessage(stopReasons + "stopping watering...");
     digitalWrite(OUTPUT_WATERING_PIN, LOW);
     isWatering = false;
+  } else if (shouldStop && !isWatering) {
+    logMessage("Watering not started. Limiting factors: " + stopReasons);
   } else if (!shouldStop && !isWatering) {
     logMessage("Conditions met, starting watering...");
     digitalWrite(OUTPUT_WATERING_PIN, HIGH);
@@ -134,7 +137,7 @@ void loop() {
       moisturePercentage = map(sensorValue, DRY_VALUE, WET_VALUE, 0, 100);
       moisturePercentage = constrain(moisturePercentage, 0, 100);
 
-      if (!(moisturePercentage < 50) || dailyWateringTime >= MAX_DAILY_WATERING_TIME) {
+      if (moisturePercentage >= 50 || dailyWateringTime >= MAX_DAILY_WATERING_TIME) {
         logMessage("Moisture exceeds 50% or daily limit reached, stopping watering...");
         break;
       }
@@ -165,14 +168,17 @@ void loop() {
   }
 }
 
+
 void logMessage(String message) {
-  String timestamp = "";
-  if (timeRetrieved) {
-    timeClient.update();
-    timestamp = "[" + String(timeClient.getFormattedTime()) + "] ";
-  } else {
-    timestamp = "[Time not available] ";
-  }
+  unsigned long timeSinceBoot = millis();
+  unsigned long secondsSinceBoot = timeSinceBoot / 1000;
+  unsigned long minutesSinceBoot = secondsSinceBoot / 60;
+  unsigned long hoursSinceBoot = minutesSinceBoot / 60;
+  
+  secondsSinceBoot %= 60;
+  minutesSinceBoot %= 60;
+
+  String timestamp = "[" + String(hoursSinceBoot) + "h " + String(minutesSinceBoot) + "m " + String(secondsSinceBoot) + "s] ";
 
   String logEntry = timestamp + message;
   Serial.println(logEntry);
