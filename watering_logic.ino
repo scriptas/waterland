@@ -4,92 +4,98 @@
 #include <WiFiClient.h>
 #include <ESP8266WiFiMulti.h>
 
-const char* ssid = "wifiname";
-const char* password = "wifipass";
+const char* ssid = "Wall-e";
+const char* password = "sausis45";
 
+// NodeMCU board, ESP-12E, 8622
 #define BAUD_RATE 9600
+#define OUTPUT_WATERING_PIN D5
+#define INPUT_SENSOR_PIN A0
+#define TCP_PORT 23  // TCP port for logging
+
+// Capacitive Soil Moisture sensor v1.2
 #define DRY_VALUE 650
 #define WET_VALUE 276
-#define WATER_PORT D5
-#define WATERING_TIME 120000  // 2 minutes in milliseconds
-#define MAX_DAILY_WATERING_TIME 1800000  // 30 minutes in milliseconds
-#define WIFI_TIMEOUT 30000  // 30 seconds in milliseconds
-#define TCP_PORT 23  // TCP port for logging
+
+#define second 1000
+#define WATERING_TIME 120 * second  // 2 minutes
+#define MAX_DAILY_WATERING_TIME 1800 * second  // 30 minutes
+#define WIFI_TIMEOUT 30 * second
 
 unsigned long dailyWateringTime = 0;
 unsigned long lastResetTime = 0;
 bool timeRetrieved = false;
 int currentHour = 0;
+bool isWatering = false;
 
 ESP8266WiFiMulti WiFiMulti;
 WiFiServer server(TCP_PORT);
 WiFiClient client;
 
-// NTP Client to get time
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);  // Update every minute
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60 * second);  // NTP Client to get time, update every minute
 
 void setup() {
   Serial.begin(BAUD_RATE);
-  delay(1000);
-  Serial.println("Soil Moisture Sensor Calibration Test");
+  delay(second);
+  logMessage("Setup started: Soil Moisture Sensor Calibration Test");
 
-  pinMode(WATER_PORT, OUTPUT);
-  digitalWrite(WATER_PORT, LOW);
+  pinMode(OUTPUT_WATERING_PIN, OUTPUT);
+  digitalWrite(OUTPUT_WATERING_PIN, LOW);
 
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  logMessage("Attempting to connect to Wi-Fi: " + String(ssid));
   WiFi.begin(ssid, password);
 
   unsigned long startAttemptTime = millis();
 
   while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < WIFI_TIMEOUT) {
-    delay(500);
+    delay(0.5 * second);
     Serial.print(".");
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("");
-    Serial.println("WiFi connected.");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
+    logMessage("Wi-Fi connected successfully.");
+    logMessage("IP address: " + WiFi.localIP().toString());
 
     timeClient.begin();
-    timeClient.setTimeOffset(3600 * 2);  // Adjust for your timezone if necessary
+    timeClient.setTimeOffset(3600 * 2);  // Adjusts for timezone
 
-    // Try to get time from NTP server
+    logMessage("Attempting to retrieve time from NTP server...");
     if (timeClient.update()) {
       timeRetrieved = true;
       currentHour = timeClient.getHours();
-      Serial.print("Current hour: ");
-      Serial.println(currentHour);
+      logMessage("Time successfully retrieved. Current hour: " + String(currentHour));
+    } else {
+      logMessage("Failed to retrieve time from NTP server.");
     }
 
+    logMessage("Starting TCP server on port " + String(TCP_PORT) + "...");
     server.begin();
-    Serial.println("TCP server started.");
+    logMessage("TCP server started successfully.");
   } else {
-    Serial.println("");
-    Serial.println("WiFi connection failed. Continuing without WiFi.");
+    logMessage("Wi-Fi connection failed. Continuing without Wi-Fi.");
   }
 }
 
 void loop() {
-  if (millis() - lastResetTime > 86400000) {
+  if (millis() - lastResetTime > second * 3600 * 24) {
     dailyWateringTime = 0;
     lastResetTime = millis();
+    
+    logMessage("Resetting daily watering time.");
     
     // Try to update time from NTP server once a day
     if (WiFi.status() == WL_CONNECTED && timeClient.update()) {
       timeRetrieved = true;
       currentHour = timeClient.getHours();
-      logMessage("Current hour: " + String(currentHour));
+      logMessage("Daily NTP update successful. Current hour: " + String(currentHour));
     } else {
       timeRetrieved = false;
-      logMessage("Failed to retrieve time from NTP server.");
+      logMessage("Failed to retrieve time from NTP server during daily update.");
     }
   }
 
-  int sensorValue = analogRead(A0);
+  int sensorValue = analogRead(INPUT_SENSOR_PIN);
   int moisturePercentage = map(sensorValue, DRY_VALUE, WET_VALUE, 0, 100);
   moisturePercentage = constrain(moisturePercentage, 0, 100);
 
@@ -113,15 +119,18 @@ void loop() {
     shouldStop = true;
   }
 
-  if (shouldStop) {
+  if (shouldStop && isWatering) {
     logMessage(stopReasons + "stopping watering...");
-    digitalWrite(WATER_PORT, LOW);
-  } else {
+    digitalWrite(OUTPUT_WATERING_PIN, LOW);
+    isWatering = false;
+  } else if (!shouldStop && !isWatering) {
     logMessage("Conditions met, starting watering...");
-    digitalWrite(WATER_PORT, HIGH);
+    digitalWrite(OUTPUT_WATERING_PIN, HIGH);
+    isWatering = true;
     unsigned long startWateringTime = millis();
+    
     while (millis() - startWateringTime < WATERING_TIME) {
-      sensorValue = analogRead(A0);
+      sensorValue = analogRead(INPUT_SENSOR_PIN);
       moisturePercentage = map(sensorValue, DRY_VALUE, WET_VALUE, 0, 100);
       moisturePercentage = constrain(moisturePercentage, 0, 100);
 
@@ -132,15 +141,17 @@ void loop() {
       
       logMessage("During Watering - Soil Moisture Value: " + String(sensorValue) + " -> " + String(moisturePercentage) + "%");
 
-      delay(1000);
+      delay(second);
     }
+    
     unsigned long wateringDuration = millis() - startWateringTime;
     dailyWateringTime += wateringDuration;
-    digitalWrite(WATER_PORT, LOW);
+    digitalWrite(OUTPUT_WATERING_PIN, LOW);
+    isWatering = false;
     logMessage("Watering complete.");
   }
 
-  delay(10000);  // Delay 10 seconds instead of 1 second
+  delay(10 * second);
 
   // Handle client connection for logging
   if (!client || !client.connected()) {
@@ -155,8 +166,18 @@ void loop() {
 }
 
 void logMessage(String message) {
-  Serial.println(message);
+  String timestamp = "";
+  if (timeRetrieved) {
+    timeClient.update();
+    timestamp = "[" + String(timeClient.getFormattedTime()) + "] ";
+  } else {
+    timestamp = "[Time not available] ";
+  }
+
+  String logEntry = timestamp + message;
+  Serial.println(logEntry);
+  
   if (client && client.connected()) {
-    client.println(message);
+    client.println(logEntry);
   }
 }
