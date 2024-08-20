@@ -4,8 +4,8 @@
 #include <WiFiClient.h>
 #include <ESP8266WiFiMulti.h>
 
-const char* ssid = "Waaaa";
-const char* password = "saaaaa";
+const char* ssid = "";
+const char* password = "";
 
 // NodeMCU board, ESP-12E, 8622
 #define BAUD_RATE 9600
